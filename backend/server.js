@@ -19,6 +19,11 @@ app.use(express.json());
 
 let db;
 
+// ✅ ROOT ROUTE (FIXED)
+app.get("/", (req, res) => {
+  res.send("Room Booking API is running 🚀");
+});
+
 // Initialize Database
 async function initDB() {
   db = await open({
@@ -114,10 +119,9 @@ app.put('/admin/password', authenticateToken, async (req, res) => {
   }
 });
 
-app.use(authenticateToken); // Protect all routes below
+// ================= ROOMS =================
 
-// Rooms Endpoints
-
+// ✅ Protected routes only where needed
 app.delete('/rooms', authenticateToken, async (req, res) => {
   try {
     await db.run('DELETE FROM bookings');
@@ -138,7 +142,7 @@ app.post('/rooms/bulk', authenticateToken, upload.single('file'), async (req, re
     
     const rooms = [];
     worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 1) { // Skip header
+      if (rowNumber > 1) {
         const name = row.getCell(1).value?.toString();
         const capacity = parseInt(row.getCell(2).value);
         const building = row.getCell(3).value?.toString();
@@ -162,6 +166,7 @@ app.post('/rooms/bulk', authenticateToken, upload.single('file'), async (req, re
   }
 });
 
+// ✅ Public routes
 app.get('/rooms', async (req, res) => {
   try {
     const rooms = await db.all('SELECT * FROM rooms');
@@ -171,7 +176,7 @@ app.get('/rooms', async (req, res) => {
   }
 });
 
-app.post('/rooms', async (req, res) => {
+app.post('/rooms', authenticateToken, async (req, res) => {
   const { name, capacity, building } = req.body;
   if (!name || (!capacity && capacity !== 0) || !building) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -188,11 +193,10 @@ app.post('/rooms', async (req, res) => {
   }
 });
 
-app.delete('/rooms/:id', async (req, res) => {
+app.delete('/rooms/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     await db.run('DELETE FROM rooms WHERE id = ?', [id]);
-    // Also delete associated bookings
     await db.run('DELETE FROM bookings WHERE room_id = ?', [id]);
     res.json({ message: 'Room deleted' });
   } catch (err) {
@@ -200,7 +204,9 @@ app.delete('/rooms/:id', async (req, res) => {
   }
 });
 
-// Bookings Endpoints
+// ================= BOOKINGS =================
+
+// ✅ Public
 app.get('/bookings', async (req, res) => {
   try {
     const bookings = await db.all(`
@@ -214,12 +220,11 @@ app.get('/bookings', async (req, res) => {
   }
 });
 
-// Helper to check time overlap
 function isOverlap(start1, end1, start2, end2) {
-  // times are in HH:MM format (e.g., '09:00', '10:30')
   return start1 < end2 && start2 < end1;
 }
 
+// ✅ Public booking
 app.post('/bookings', async (req, res) => {
   const { name, email, reason, room_id, date, start_time, end_time } = req.body;
   
@@ -227,13 +232,11 @@ app.post('/bookings', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Ensure start_time < end_time
   if (start_time >= end_time) {
     return res.status(400).json({ error: 'Start time must be before end time' });
   }
 
   try {
-    // Check for overlaps
     const existingBookings = await db.all(
       'SELECT start_time, end_time FROM bookings WHERE room_id = ? AND date = ?',
       [room_id, date]
@@ -250,6 +253,19 @@ app.post('/bookings', async (req, res) => {
       [name, email, reason, room_id, date, start_time, end_time]
     );
     res.status(201).json({ id: result.lastID, name, email, reason, room_id, date, start_time, end_time });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Public export
+// --- Bookings Endpoint Overrides ---
+
+app.delete('/bookings/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.run('DELETE FROM bookings WHERE id = ?', [id]);
+    res.json({ message: 'Booking deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -288,7 +304,7 @@ app.get('/export', async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=' + 'bookings.xlsx');
+    res.setHeader('Content-Disposition', 'attachment; filename=bookings.xlsx');
 
     await workbook.xlsx.write(res);
     res.end();

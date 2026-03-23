@@ -72,14 +72,41 @@ export default function BookRoom() {
   const handleTimeSlotClick = (time) => {
     if (isSlotBooked(time)) return;
 
-    const index = TIME_SLOTS.indexOf(time);
-    const endStr = index < TIME_SLOTS.length - 1 ? TIME_SLOTS[index + 1] : '21:00';
+    if (!formData.start_time) {
+      setFormData({ ...formData, start_time: time, end_time: '' });
+    } else if (!formData.end_time) {
+      if (time > formData.start_time) {
+        // Find next hour to set as end time. e.g. clicking 09:00 sets span 08:00 to 10:00
+        const index = TIME_SLOTS.indexOf(time);
+        const endStr = index < TIME_SLOTS.length - 1 ? TIME_SLOTS[index + 1] : '21:00';
+        
+        // Check if there are booked slots between start and end
+        const hasOverlap = currentBookings.some(b => {
+           return formData.start_time < b.end_time && endStr > b.start_time;
+        });
 
-    setFormData({ ...formData, start_time: time, end_time: endStr });
+        if (hasOverlap) {
+          alert('Cannot select range overlapping with existing bookings.');
+          setFormData({ ...formData, start_time: time, end_time: '' });
+        } else {
+          setFormData({ ...formData, end_time: endStr });
+        }
+      } else {
+        setFormData({ ...formData, start_time: time, end_time: '' });
+      }
+    } else {
+      // Reset
+      setFormData({ ...formData, start_time: time, end_time: '' });
+    }
   };
 
   const isSlotSelected = (time) => {
-    return formData.start_time === time;
+    if (!formData.start_time) return false;
+    if (formData.start_time === time && !formData.end_time) return true;
+    if (formData.start_time && formData.end_time) {
+      return time >= formData.start_time && time < formData.end_time;
+    }
+    return false;
   };
 
   return (
@@ -156,7 +183,7 @@ export default function BookRoom() {
               })}
             </div>
             <p className="text-xs text-secondary mt-3">
-              Click a slot to select a 1-hour booking duration.
+              Click a slot to start, then click another to select a duration.
             </p>
           </div>
         </div>
@@ -206,7 +233,7 @@ export default function BookRoom() {
               <span className="text-sm font-bold text-textMain">
                 {formData.start_time && formData.end_time 
                   ? `${formData.start_time} - ${formData.end_time}` 
-                  : "Select a 1-hour slot"}
+                  : "Select a range"}
               </span>
             </div>
             <button 

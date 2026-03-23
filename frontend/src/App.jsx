@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ManageRooms from './pages/ManageRooms';
 import BookRoom from './pages/BookRoom';
+import BookingsList from './pages/BookingsList';
 import Header from './components/Header';
 import Login from './pages/Login';
 import Settings from './pages/Settings';
@@ -40,6 +41,14 @@ function App() {
           <ProtectedRoute>
             <Layout>
               <BookRoom />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/bookings" element={
+          <ProtectedRoute>
+            <Layout>
+              <BookingsList />
             </Layout>
           </ProtectedRoute>
         } />

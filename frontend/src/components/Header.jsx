@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Calendar, LayoutDashboard, Download, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Calendar, LayoutDashboard, Download, Settings as SettingsIcon, LogOut, List } from 'lucide-react';
 import { exportBookings } from '../api';
 import { cn } from '../utils';
 
@@ -10,6 +10,7 @@ export default function Header() {
   const links = [
     { path: '/', label: 'Manage Rooms', icon: LayoutDashboard },
     { path: '/book', label: 'Book Room', icon: Calendar },
+    { path: '/bookings', label: 'View Bookings', icon: List },
   ];
 
   const handleLogout = () => {
