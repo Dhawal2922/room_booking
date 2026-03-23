@@ -41,6 +41,7 @@ export const deleteRoom = (id) => api.delete(`/rooms/${id}`).then(res => res.dat
 export const getBookings = () => api.get('/bookings').then(res => res.data);
 export const createBooking = (bookingData) => api.post('/bookings', bookingData).then(res => res.data);
 export const deleteBooking = (id) => api.delete(`/bookings/${id}`).then(res => res.data);
+export const deleteAllBookings = () => api.delete('/bookings').then(res => res.data);
 
 export const exportBookings = () => {
   const token = localStorage.getItem('token');

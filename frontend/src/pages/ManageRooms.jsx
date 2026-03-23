@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getRooms, createRoom, deleteRoom, bulkCreateRooms, deleteAllRooms } from '../api';
-import { Building2, Users, Trash2, Plus, Upload, AlertTriangle } from 'lucide-react';
+import { Building2, Users, Trash2, Plus, Upload, AlertTriangle, CalendarRange } from 'lucide-react';
 
 export default function ManageRooms() {
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
+  
+  const [blockFilter, setBlockFilter] = useState('');
+  const [capacityFilter, setCapacityFilter] = useState('');
+
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({ name: '', capacity: '', building: '' });
   const [loading, setLoading] = useState(true);
@@ -174,23 +180,74 @@ export default function ManageRooms() {
         </form>
       )}
 
+      {/* Filters */}
+      {rooms.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-gray-500 uppercase mb-1">Filter by Block</span>
+            <select 
+              className="input py-2 text-sm"
+              value={blockFilter}
+              onChange={(e) => setBlockFilter(e.target.value)}
+            >
+              <option value="">All Blocks</option>
+              {Array.from(new Set(rooms.map(r => r.name.charAt(0).toUpperCase()))).sort().map(b => (
+                <option key={b} value={b}>Block {b}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-gray-500 uppercase mb-1">Filter by Capacity</span>
+            <select 
+              className="input py-2 text-sm"
+              value={capacityFilter}
+              onChange={(e) => setCapacityFilter(e.target.value)}
+            >
+              <option value="">All Capacities</option>
+              <option value="small">Small (&lt; 50 seats)</option>
+              <option value="medium">Medium (50 - 100 seats)</option>
+              <option value="large">Large (&gt; 100 seats)</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {rooms.length === 0 && !isAdding && (
           <div className="col-span-full py-12 text-center text-secondary border-2 border-dashed border-gray-200 rounded-2xl">
             No rooms found. Click "Add Room" to create one.
           </div>
         )}
-        {rooms.map(room => (
-          <div key={room.id} className="card group hover:border-primary/20 transition-colors">
+        {rooms.filter(r => {
+          if (blockFilter && !r.name.toUpperCase().startsWith(blockFilter)) return false;
+          if (capacityFilter === 'small' && r.capacity >= 50) return false;
+          if (capacityFilter === 'medium' && (r.capacity < 50 || r.capacity > 100)) return false;
+          if (capacityFilter === 'large' && r.capacity <= 100) return false;
+          return true;
+        }).map(room => (
+          <div 
+            key={room.id} 
+            onClick={() => navigate('/book', { state: { roomId: room.id } })}
+            className="card group hover:border-primary transition-colors cursor-pointer relative"
+          >
             <div className="flex justify-between items-start mb-4">
-              <h3 className="text-xl font-bold">{room.name}</h3>
-              <button 
-                onClick={() => handleDelete(room.id)}
-                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100"
-                title="Delete Room"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <h3 className="text-xl font-bold group-hover:text-primary transition-colors">{room.name}</h3>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate('/book', { state: { roomId: room.id } }); }}
+                  className="p-2 text-primary hover:bg-primary/10 rounded-lg transition opacity-0 group-hover:opacity-100"
+                  title="Book Room"
+                >
+                  <CalendarRange className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleDelete(room.id); }}
+                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100"
+                  title="Delete Room"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div className="space-y-2 text-secondary text-sm">
               <div className="flex items-center gap-2">

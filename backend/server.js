@@ -58,6 +58,18 @@ async function initDB() {
     );
   `);
 
+  try {
+    const tableInfo = await db.all("PRAGMA table_info(bookings)");
+    if (!tableInfo.some(col => col.name === 'end_date')) {
+      await db.run("ALTER TABLE bookings ADD COLUMN end_date TEXT");
+    }
+    if (!tableInfo.some(col => col.name === 'status')) {
+      await db.run("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'active'");
+    }
+  } catch (err) {
+    console.error("Could not alter bookings table", err);
+  }
+
   const existingAdmin = await db.get('SELECT * FROM admin');
   if (!existingAdmin) {
     const hashedPassword = await bcrypt.hash('password123', 10);
@@ -143,10 +155,28 @@ app.post('/rooms/bulk', authenticateToken, upload.single('file'), async (req, re
     const rooms = [];
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber > 1) {
-        const name = row.getCell(1).value?.toString();
-        const capacity = parseInt(row.getCell(2).value);
-        const building = row.getCell(3).value?.toString();
-        if (name && !isNaN(capacity) && building) {
+        // Expected structure from screenshot:
+        // Col 2: Room Name (Class/Labs)
+        // Col 4: Floor (Building/Floor)
+        // Col 5: Capacity (Total Seat)
+        
+        let name = row.getCell(2).value;
+        let building = row.getCell(4).value;
+        let capacityStr = row.getCell(5).value;
+
+        // Handle possible rich text objects from exceljs
+        if (name && typeof name === 'object' && name.richText) name = name.richText.map(rt => rt.text).join('');
+        if (building && typeof building === 'object' && building.richText) building = building.richText.map(rt => rt.text).join('');
+        if (capacityStr && typeof capacityStr === 'object' && capacityStr.richText) capacityStr = capacityStr.richText.map(rt => rt.text).join('');
+        if (capacityStr && typeof capacityStr === 'object' && capacityStr.result !== undefined) capacityStr = capacityStr.result; // For formulas
+
+        name = name?.toString().trim();
+        building = building?.toString().trim();
+        const capacity = parseInt(capacityStr);
+
+        // Name must exist, Capacity must be a valid number, and Building must exist. 
+        // This implicitly skips all the visually merged block header rows.
+        if (name && !isNaN(capacity) && building && name.toLowerCase() !== 'class/labs') {
           rooms.push({ name, capacity, building });
         }
       }
@@ -226,33 +256,47 @@ function isOverlap(start1, end1, start2, end2) {
 
 // ✅ Public booking
 app.post('/bookings', async (req, res) => {
-  const { name, email, reason, room_id, date, start_time, end_time } = req.body;
+  const { name, email, reason, room_id, room_ids, date, end_date, start_time, end_time } = req.body;
+  const targetRoomIds = Array.isArray(room_ids) && room_ids.length > 0 ? room_ids : (room_id ? [room_id] : []);
+  const finalEndDate = end_date || date;
   
-  if (!name || !email || !reason || !room_id || !date || !start_time || !end_time) {
+  if (!name || !email || !reason || targetRoomIds.length === 0 || !date || !start_time || !end_time) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  if (start_time >= end_time) {
-    return res.status(400).json({ error: 'Start time must be before end time' });
+  const reqStart = new Date(`${date}T${start_time}`);
+  const reqEnd = new Date(`${finalEndDate}T${end_time}`);
+
+  if (reqStart >= reqEnd) {
+    return res.status(400).json({ error: 'Start date/time must be before end date/time' });
   }
 
   try {
-    const existingBookings = await db.all(
-      'SELECT start_time, end_time FROM bookings WHERE room_id = ? AND date = ?',
-      [room_id, date]
-    );
-
-    for (const booking of existingBookings) {
-      if (isOverlap(booking.start_time, booking.end_time, start_time, end_time)) {
-        return res.status(409).json({ error: 'Time slot overlaps with an existing booking' });
+    // Check ALL requested rooms for overlap
+    for (const id of targetRoomIds) {
+      const existingBookings = await db.all(
+        "SELECT date, end_date, start_time, end_time FROM bookings WHERE room_id = ? AND status != 'cancelled'",
+        [id]
+      );
+      for (const booking of existingBookings) {
+        const bStart = new Date(`${booking.date}T${booking.start_time}`);
+        const bEndDate = booking.end_date || booking.date;
+        const bEnd = new Date(`${bEndDate}T${booking.end_time}`);
+        
+        if (reqStart < bEnd && bStart < reqEnd) {
+          return res.status(409).json({ error: `Time slot overlaps with an existing booking for a selected room` });
+        }
       }
     }
 
-    const result = await db.run(
-      'INSERT INTO bookings (name, email, reason, room_id, date, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, email, reason, room_id, date, start_time, end_time]
-    );
-    res.status(201).json({ id: result.lastID, name, email, reason, room_id, date, start_time, end_time });
+    // Insert ALL bookings
+    const stmt = await db.prepare('INSERT INTO bookings (name, email, reason, room_id, date, end_date, start_time, end_time, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const id of targetRoomIds) {
+      await stmt.run([name, email, reason, id, date, finalEndDate, start_time, end_time, 'active']);
+    }
+    await stmt.finalize();
+
+    res.status(201).json({ message: 'Bookings created successfully', count: targetRoomIds.length, room_ids: targetRoomIds, date, end_date: finalEndDate, start_time, end_time });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -261,11 +305,20 @@ app.post('/bookings', async (req, res) => {
 // ✅ Public export
 // --- Bookings Endpoint Overrides ---
 
+app.delete('/bookings', async (req, res) => {
+  try {
+    await db.run('DELETE FROM bookings');
+    res.json({ message: 'All bookings deleted permanently' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/bookings/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await db.run('DELETE FROM bookings WHERE id = ?', [id]);
-    res.json({ message: 'Booking deleted' });
+    await db.run("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [id]);
+    res.json({ message: 'Booking cancelled' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -274,7 +327,7 @@ app.delete('/bookings/:id', async (req, res) => {
 app.get('/export', async (req, res) => {
   try {
     const bookings = await db.all(`
-      SELECT b.name, b.email, r.name as room_name, b.date, b.start_time, b.end_time, b.reason 
+      SELECT b.name, b.email, r.name as room_name, b.date, b.end_date, b.start_time, b.end_time, b.reason, b.status 
       FROM bookings b
       LEFT JOIN rooms r ON b.room_id = r.id
       ORDER BY b.date DESC, b.start_time ASC
@@ -287,9 +340,10 @@ app.get('/export', async (req, res) => {
       { header: 'Name', key: 'name', width: 20 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Room', key: 'room_name', width: 15 },
-      { header: 'Date', key: 'date', width: 15 },
+      { header: 'Date', key: 'date', width: 20 },
       { header: 'Time Slot', key: 'time_slot', width: 20 },
       { header: 'Reason', key: 'reason', width: 30 },
+      { header: 'Status', key: 'status', width: 15 },
     ];
 
     bookings.forEach(booking => {
@@ -297,9 +351,10 @@ app.get('/export', async (req, res) => {
         name: booking.name,
         email: booking.email,
         room_name: booking.room_name,
-        date: booking.date,
+        date: booking.end_date && booking.end_date !== booking.date ? `${booking.date} to ${booking.end_date}` : booking.date,
         time_slot: booking.start_time + ' - ' + booking.end_time,
-        reason: booking.reason
+        reason: booking.reason,
+        status: (booking.status || 'active').toUpperCase()
       });
     });
 
