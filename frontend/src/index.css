@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-textMain antialiased overflow-x-hidden;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-xl transition shadow hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none font-medium;
+  }
+  .btn-secondary {
+    @apply bg-surface text-secondary border border-gray-200 px-4 py-2 rounded-xl transition hover:bg-gray-50 active:bg-gray-100 font-medium;
+  }
+  .btn-danger {
+    @apply bg-red-500 text-white px-4 py-2 rounded-xl transition shadow hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 font-medium;
+  }
+  .card {
+    @apply bg-surface rounded-2xl shadow-soft border border-gray-100 p-6;
+  }
+  .input {
+    @apply w-full border border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition bg-white;
+  }
+  .label {
+    @apply block text-sm font-medium text-secondary mb-1;
+  }
+}
